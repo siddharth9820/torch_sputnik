@@ -1,4 +1,6 @@
 import torch
+from sparse_utils import _dense_to_sparse, fp16_mask_correction
+from sspade import extract_mask
 torch.ops.load_library("build/libsputnik_ops.so")
 
 
@@ -11,31 +13,65 @@ torch.ops.load_library("build/libsputnik_ops.so")
 #b = torch.randn(size=(k,n), dtype=torch.float16, device='cuda')
 #output = torch.randn(size=(m,n), dtype=torch.float16, device='cuda')
 
-W_dense = torch.tensor([[0, 0, 1, 5], [10, 12, 0, 0], [0, 0, 0, 0], [1, 5, 0, 0]], dtype=torch.float16, device='cuda')
-row_indices, column_indices = torch.nonzero(W_dense, as_tuple=True)
-values = W_dense[row_indices, column_indices]
-row_indices = row_indices.type(torch.int32)
-column_indices = column_indices.type(torch.int16)
-row_offsets = W_dense.to_sparse_csr().crow_indices().type(torch.int32)
-b = torch.rand(size=(W_dense.shape[-1], 8), dtype=torch.float16, device='cuda')
-m = W_dense.shape[0]
-n = b.shape[-1]
-k = b.shape[0]
-output = torch.zeros(size=(m,n), dtype=torch.float16, device='cuda')
+fp16=False
+sparsity = 90
+in_dim = 128
+out_dim = in_dim * 4
+batch_size = 8
 
-torch.ops.sputnik.spmm(row_indices,
-		values,
-		row_offsets,
-		column_indices,
-		b,
-                output,
-		m,
-		n,
-		k
-		)
-torch.cuda.synchronize()
+W_dense = torch.rand((out_dim, in_dim), device='cuda', dtype=torch.float32)
 
-out_dense = torch.matmul(W_dense, b)
+if fp16:
+    mask = fp16_mask_correction(extract_mask(W_dense, sparsity))
+    W_dense = W_dense * mask
+    values, row_indices, row_offsets, column_indices =_dense_to_sparse(W_dense, 'cuda')
+    values = values.type(torch.float16)
+    row_indices = row_indices.type(torch.int32)
+    column_indices = column_indices.type(torch.int16)
+    b = torch.rand(size=(W_dense.shape[-1], batch_size), dtype=torch.float16, device='cuda')
+    m = W_dense.shape[0]
+    n = b.shape[-1]
+    k = b.shape[0]
+    output = torch.zeros(size=(m,n), dtype=torch.float16, device='cuda')
 
-print(output)
-print(out_dense)
+    torch.ops.sputnik.spmm_fp16(row_indices,
+                    values,
+                    row_offsets,
+                    column_indices,
+                    b,
+                    output,
+                    m,
+                    n,
+                    k
+                    )
+
+    W_dense = W_dense.type(torch.float16)
+    torch.cuda.synchronize()
+else:
+    W_dense = W_dense.type(torch.float32)
+    mask = extract_mask(W_dense, sparsity)
+    W_dense = W_dense * mask
+    values, row_indices, row_offsets, column_indices =_dense_to_sparse(W_dense, 'cuda')
+    b = torch.rand(size=(W_dense.shape[-1], batch_size), dtype=torch.float32,
+            device='cuda').contiguous()
+    m = W_dense.shape[0]
+    n = b.shape[-1]
+    k = b.shape[0]
+    output = torch.zeros(size=(m,n), dtype=torch.float32,
+            device='cuda').contiguous()
+
+    torch.cuda.synchronize()
+    torch.ops.sputnik.spmm_fp32(row_indices,
+                    values,
+                    row_offsets,
+                    column_indices,
+                    b,
+                    output,
+                    m,
+                    n,
+                    k
+                    )
+    torch.cuda.synchronize()
+
+out_dense= torch.matmul(W_dense, b)
+print(f"FP16 = {fp16}, out_dim={out_dim}, in_dim={in_dim},batch_size={batch_size}, MSE={torch.mean((out_dense.float()-output.float())**2)}")

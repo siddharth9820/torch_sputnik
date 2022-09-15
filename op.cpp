@@ -53,7 +53,7 @@ torch::Tensor copy(torch::Tensor tensor){
 //}
 
 
-void spmm(const torch::Tensor& row_indices, 
+void spmm_fp16(const torch::Tensor& row_indices, 
 		const torch::Tensor& values,
 		const torch::Tensor& row_offsets,
 		const torch::Tensor& column_indices,
@@ -65,9 +65,8 @@ void spmm(const torch::Tensor& row_indices,
 		)
 {
 	TORCH_CHECK(b.dim() == 2);
-        
 	int nonzeros = column_indices.size(0);
-	
+	//TORCH_CHECK( nonzeros % 8 == 0, "non zeros need to be aligned to 32 bytes for vectorization")	
 
 	CUDA_CALL(sputnik::CudaSpmm(
 	(int)m, (int)k, (int)n, (int)nonzeros,
@@ -78,9 +77,32 @@ void spmm(const torch::Tensor& row_indices,
 }
 
 
+void spmm_fp32(const torch::Tensor& row_indices, 
+		const torch::Tensor& values,
+		const torch::Tensor& row_offsets,
+		const torch::Tensor& column_indices,
+		const torch::Tensor& b,
+		const torch::Tensor& output,
+		int64_t m,
+		int64_t n,
+		int64_t k
+		)
+{
+	TORCH_CHECK(b.dim() == 2);
+	int nonzeros = column_indices.size(0);
+	//TORCH_CHECK( nonzeros % 8 == 0, "non zeros need to be aligned to 32 bytes for vectorization")	
+
+	CUDA_CALL(sputnik::CudaSpmm(
+	(int)m, (int)k, (int)n, (int)nonzeros,
+	row_indices.data_ptr<int>(), values.data_ptr<float>(),
+	row_offsets.data_ptr<int>(),  column_indices.data_ptr<int>(),
+	b.data_ptr<float>(), output.data_ptr<float>(), 0
+	));
+}
 
 TORCH_LIBRARY(sputnik, m) {
   m.def("copy", copy);
-  m.def("spmm", spmm);
+  m.def("spmm_fp16", spmm_fp16);
+  m.def("spmm_fp32", spmm_fp32);
 }
 
