@@ -1,3 +1,0 @@
-/ccs/home/ssingh37/torch_sputnik/build/CMakeFiles/sputnik_ops.dir
-/ccs/home/ssingh37/torch_sputnik/build/CMakeFiles/edit_cache.dir
-/ccs/home/ssingh37/torch_sputnik/build/CMakeFiles/rebuild_cache.dir
