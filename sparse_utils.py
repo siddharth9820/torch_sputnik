@@ -1,7 +1,5 @@
 import torch
 
-
-
 def _diffsort(a):
     return torch.argsort(torch.diff(a), dim=0, descending=True)
 
@@ -40,6 +38,43 @@ def _dense_to_sparse(matrix, device):
         mask, device
     )
     return values, row_indices, row_offsets, column_indices
+
+def _csr_to_coo(m, n, row_offsets, column_indices):
+    # convert from compressed rows to uncompressed
+    indices = torch.arange(m, dtype=row_offsets.dtype, device=row_offsets.device)
+    row_sizes = torch.diff(row_offsets)
+    row_coo = torch.repeat_interleave(indices, row_sizes.long())
+    return row_coo, column_indices
+
+
+def _coo_to_csr(m, n, row_indices, column_indices):
+    # assumes coalesced coo
+    row_offsets = row_indices.bincount(minlength=n).cumsum(0, dtype=row_indices.dtype)
+    row_offsets = torch.nn.functional.pad(row_offsets, (1, 0))
+    return row_offsets, column_indices
+
+def _get_transpose_info(m, n, row_indices, row_offsets, column_indices):
+    # strategy:
+    # - uncompress the rows to have data in COO format
+    # - get permutation for stable sort of the columns to get the rows for the transposed matrix
+    # - compress the new rows and return the permutation to be applied on the values
+
+    # convert from compressed rows to uncompressed
+    row_coo, _ = _csr_to_coo(m, n, row_offsets, column_indices)
+
+    # get the permutation for the stable sort
+    row_offsets_t, perm = column_indices.sort(dim=0, stable=True)
+    column_indices_t = row_coo[perm]
+
+    row_offsets_t, _ = _coo_to_csr(m, n, row_offsets_t, column_indices)
+    row_indices_t = _diffsort(row_offsets_t).int()
+
+    return row_indices_t, row_offsets_t, column_indices_t, perm
+
+def _transpose_with_info(values, _transpose_info):
+    row_indices_t, row_offsets_t, column_indices_t, perm = _transpose_info
+    values_t = values[perm]
+    return row_indices_t, values_t, row_offsets_t, column_indices_t
 
 
 def fp16_mask_correction(mask):

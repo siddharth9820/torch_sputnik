@@ -25,7 +25,31 @@ void spmm_fp16(const torch::Tensor& row_indices,
 		int64_t k
 		)
 {
-	TORCH_CHECK(b.dim() == 2);
+        // dim checks
+	TORCH_CHECK(row_indices.dim() == 1, "row indices matrix should be 1 dimensional");
+	TORCH_CHECK(values.dim() == 1, "values matrix should be 1 dimensional");
+	TORCH_CHECK(row_offsets.dim() == 1, "row offsets matrix should be 1 dimensional");
+	TORCH_CHECK(column_indices.dim() == 1, "row indices matrix should be 1 dimensional");
+	TORCH_CHECK(b.dim() == 2, "rhs matrix b should be 2 dimensional");
+	TORCH_CHECK(output.dim() == 2, "output matrix should be 2 dimensional");
+
+	// device checks
+	TORCH_CHECK(row_indices.is_cuda(), "row indices matrix should be on gpu");
+	TORCH_CHECK(values.is_cuda(), "values matrix should be on gpu");
+	TORCH_CHECK(row_offsets.is_cuda(), "row offsets matrix should be on gpu");
+	TORCH_CHECK(column_indices.is_cuda(), "column indices matrix should be on gpu");
+	TORCH_CHECK(b.is_cuda(), "rhs matrix b should be on gpu");
+	TORCH_CHECK(output.is_cuda(), "output matrix should be on gpu");
+
+	// contiguous checks
+	TORCH_CHECK(row_indices.is_contiguous(), "row indices matrix should be contiguous");
+	TORCH_CHECK(values.is_contiguous(), "values matrix should be contiguous");
+	TORCH_CHECK(row_offsets.is_contiguous(), "row offsets matrix should be contiguous");
+	TORCH_CHECK(column_indices.is_contiguous(), "column indices matrix should be contiguous");
+	TORCH_CHECK(b.is_contiguous(), "rhs matrix b should be contiguous");
+	TORCH_CHECK(output.is_contiguous(), "output matrix should be contiguous");
+	
+	
 	int nonzeros = column_indices.size(0);
 	//TORCH_CHECK( nonzeros % 8 == 0, "non zeros need to be aligned to 32 bytes for vectorization")	
 
@@ -74,9 +98,33 @@ void sddmm_fp32(const torch::Tensor& row_indices,
 		)
 {
 	
-	TORCH_CHECK(b.dim() == 2);
+        // dim checks
+	TORCH_CHECK(row_indices.dim() == 1, "row indices matrix should be 1 dimensional");
+	TORCH_CHECK(values.dim() == 1, "values matrix should be 1 dimensional");
+	TORCH_CHECK(row_offsets.dim() == 1, "row offsets matrix should be 1 dimensional");
+	TORCH_CHECK(column_indices.dim() == 1, "row indices matrix should be 1 dimensional");
+	TORCH_CHECK(b.dim() == 2, "rhs matrix b should be 2 dimensional");
+	TORCH_CHECK(output.dim() == 2, "output matrix should be 2 dimensional");
+
+	// device checks
+	TORCH_CHECK(row_indices.is_cuda(), "row indices matrix should be on gpu");
+	TORCH_CHECK(values.is_cuda(), "values matrix should be on gpu");
+	TORCH_CHECK(row_offsets.is_cuda(), "row offsets matrix should be on gpu");
+	TORCH_CHECK(column_indices.is_cuda(), "column indices matrix should be on gpu");
+	TORCH_CHECK(b.is_cuda(), "rhs matrix b should be on gpu");
+	TORCH_CHECK(output.is_cuda(), "output matrix should be on gpu");
+
+	// contiguous checks
+	TORCH_CHECK(row_indices.is_contiguous(), "row indices matrix should be contiguous");
+	TORCH_CHECK(values.is_contiguous(), "values matrix should be contiguous");
+	TORCH_CHECK(row_offsets.is_contiguous(), "row offsets matrix should be contiguous");
+	TORCH_CHECK(column_indices.is_contiguous(), "column indices matrix should be contiguous");
+	TORCH_CHECK(b.is_contiguous(), "rhs matrix b should be contiguous");
+	TORCH_CHECK(output.is_contiguous(), "output matrix should be contiguous");
+	
 	int nonzeros = column_indices.size(0);
-      	CUDA_CALL(sputnik::CudaSddmm(
+      	
+	CUDA_CALL(sputnik::CudaSddmm(
           (int)m, (int)n, (int)k, (int)nonzeros,
           row_indices.data_ptr<int>(),
           row_offsets.data_ptr<int>(),
