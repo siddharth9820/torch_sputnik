@@ -5,7 +5,8 @@ from torch.autograd import Function
 from torch.autograd.function import once_differentiable
 import types
 import copy
-torch.ops.load_library("build/libsputnik_ops.so")
+import os
+torch.ops.load_library(os.path.join(os.path.dirname(__file__),"build/libsputnik_ops.so"))
 
 
 class sparse_linear(Function):
@@ -85,7 +86,7 @@ def get_transpose_info(self):
 @torch.no_grad()
 def fclayer_sparsify(module, prune_percent, mixed_precision=True):
     assert mixed_precision, "doesnt support full precision yet"
-    weight = module.weight.cuda()
+    weight = module.weight
     mask = extract_mask(weight, prune_percent)
     if mixed_precision:
         mask = fp16_mask_correction(mask)
@@ -130,7 +131,8 @@ if __name__ == "__main__":
         dummy_dense_layer.weight.copy_(dummy_layer.weight)
     mask = fclayer_sparsify(dummy_layer, prune_percent)
     with torch.no_grad():
-        dummy_dense_layer.weight *= mask.cpu()
+        dummy_dense_layer.weight *= mask
+
     torch.cuda.synchronize()
     model = dummy_layer.cuda().half()
     x1 = torch.rand([batch_size, hsize], dtype=torch.float16, device='cuda')
