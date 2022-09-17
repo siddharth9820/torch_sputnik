@@ -18,7 +18,7 @@ class sparse_linear(Function):
         n = x.shape[-1]
         y = torch.zeros(size=(m,n), dtype=values.dtype, device='cuda')
         torch.ops.sputnik.spmm_fp16(row_indices,
-                        values,
+                        values.clone().contiguous(), # for some mysterious memory alignment reason this clone is mandatory 
                         row_offsets,
                         column_indices,
                         x,
@@ -77,8 +77,10 @@ def sparse_linear_forward(self, x):
     x_shape = copy.deepcopy(x.shape)
     x = x.view(-1, x.shape[-1]).t().contiguous() # sputnik takes batch size as column dimension
     y = sparse_linear.apply(x, self.weight, self.row_indices, self.row_offsets, self.column_indices, self.out_dim, self.in_dim, self.get_transpose_info())
-    y = y.t().view(*x_shape[:-1], -1) # reconvert batch_size to the row dimension
-    return y, self.bias
+    y = y.t().view(*x_shape[:-1], -1).contiguous() # reconvert batch_size to the row dimension
+    if self.bias is not None:
+        y = y + self.bias
+    return y
 
 def get_transpose_info(self):
     return self.row_indices_t, self.row_offsets_t, self.column_indices_t, self.perm
@@ -97,7 +99,7 @@ def fclayer_sparsify(module, prune_percent, mixed_precision=True):
 
     weight = weight * mask
     values, row_indices, row_offsets, column_indices =_dense_to_sparse(weight, weight.device)
-
+    values = values.type(values_dtype)
     #module.register_buffer('values', values.type(values_dtype))
     module.weight = torch.nn.Parameter(values, requires_grad=True)
     module.register_buffer('row_indices', row_indices.type(torch.int32))
@@ -122,11 +124,11 @@ def fclayer_sparsify(module, prune_percent, mixed_precision=True):
     return mask
 
 if __name__ == "__main__":
-    batch_size = 2
-    hsize = 64
+    batch_size = 4096
+    hsize = 1024
     prune_percent = 50
-    dummy_layer = torch.nn.Linear(hsize, 4*hsize, bias=False)
-    dummy_dense_layer = torch.nn.Linear(hsize, 4*hsize, bias=False)
+    dummy_layer = torch.nn.Linear(hsize, hsize, bias=False)
+    dummy_dense_layer = torch.nn.Linear(hsize, hsize, bias=False)
     with torch.no_grad():
         dummy_dense_layer.weight.copy_(dummy_layer.weight)
     mask = fclayer_sparsify(dummy_layer, prune_percent)
@@ -140,8 +142,8 @@ if __name__ == "__main__":
 
     x1.requires_grad=True
     x2.requires_grad = True
-
-    y1, bias = model(x1)
+    
+    y1 = model(x1)
     dummy_grad = torch.randn(y1.shape, dtype=torch.float16, device='cuda') * 0.001
     y1.backward(dummy_grad)
     torch.cuda.synchronize()
